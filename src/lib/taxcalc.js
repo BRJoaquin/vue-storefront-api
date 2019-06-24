@@ -1,3 +1,25 @@
+function isSpecialPriceActive(fromDate, toDate) {
+  const now = new Date()
+  fromDate = fromDate ? new Date(fromDate) : false
+  toDate = toDate ? new Date(toDate) : false
+
+  if (!fromDate && !toDate) {
+    return true
+  }
+  
+  if (fromDate && toDate) {
+    return fromDate < now && toDate > now
+  }
+
+  if (fromDate && !toDate) {
+    return fromDate < now
+  }
+
+  if (!fromDate && toDate) {
+    return toDate > now
+  }
+}
+
 export function updateProductPrices (product, rate, sourcePriceInclTax = false) {
   const rateFactor = parseFloat(rate.rate) / 100
   product.price = parseFloat(product.price)
@@ -22,7 +44,7 @@ export function updateProductPrices (product, rate, sourcePriceInclTax = false) 
   product.specialPriceInclTax = specialPriceExclTax + product.specialPriceTax
 
   if (product.special_price && (product.special_price < product.price)) {
-    if ((product.special_to_date && new Date(product.special_to_date) < new Date()) || (product.special_from_date && new Date(product.special_from_date) > new Date())) {
+    if (!isSpecialPriceActive(product.special_from_date, product.special_to_date)) {
       product.special_price = 0 // out of the dates period
     } else {
       product.originalPrice = priceExclTax
@@ -56,7 +78,8 @@ export function updateProductPrices (product, rate, sourcePriceInclTax = false) 
       configurableChild.priceTax = priceExclTax * rateFactor
       configurableChild.priceInclTax = priceExclTax + configurableChild.priceTax
 
-      let specialPriceExclTax = configurableChild.special_price
+      let specialPriceExclTax = parseFloat(configurableChild.special_price)
+
       if (sourcePriceInclTax) {
         specialPriceExclTax = configurableChild.special_price / (1 + rateFactor)
         configurableChild.special_price = specialPriceExclTax
@@ -66,7 +89,7 @@ export function updateProductPrices (product, rate, sourcePriceInclTax = false) 
       configurableChild.specialPriceInclTax = specialPriceExclTax + configurableChild.specialPriceTax
 
       if (configurableChild.special_price && (configurableChild.special_price < configurableChild.price)) {
-        if ((configurableChild.special_to_date && new Date(configurableChild.special_to_date) < new Date()) || (configurableChild.special_from_date && new Date(configurableChild.special_from_date) > new Date())) {
+        if (!isSpecialPriceActive(configurableChild.special_from_date, configurableChild.special_to_date)) {
           configurableChild.special_price = 0 // out of the dates period
         } else {
           configurableChild.originalPrice = priceExclTax
@@ -98,16 +121,22 @@ export function updateProductPrices (product, rate, sourcePriceInclTax = false) 
 
 export function calculateProductTax (product, taxClasses, taxCountry = 'PL', taxRegion = '', sourcePriceInclTax = false) {
   let rateFound = false
-  let taxClass = taxClasses.find((el) => el.product_tax_class_ids.indexOf(parseInt(product.tax_class_id) >= 0))
-  if (taxClass) {
-    for (let rate of taxClass.rates) { // TODO: add check for zip code ranges (!)
-      if (rate.tax_country_id === taxCountry && (rate.region_name === taxRegion || rate.tax_region_id === 0 || !rate.region_name)) {
-        updateProductPrices(product, rate, sourcePriceInclTax)
-        rateFound = true
-        console.debug('Tax rate ' + rate.code + ' = ' + rate.rate + '% found for ' + taxCountry + ' / ' + taxRegion)
-        break
+  if (product.tax_class_id > 0) {
+    let taxClass = taxClasses.find((el) => el.product_tax_class_ids.indexOf(parseInt(product.tax_class_id) >= 0))
+    if (taxClass) {
+      for (let rate of taxClass.rates) { // TODO: add check for zip code ranges (!)
+        if (rate.tax_country_id === taxCountry && (rate.region_name === taxRegion || rate.tax_region_id === 0 || !rate.region_name)) {
+          updateProductPrices(product, rate, sourcePriceInclTax)
+          rateFound = true
+          console.debug('Tax rate ' + rate.code + ' = ' + rate.rate + '% found for ' + taxCountry + ' / ' + taxRegion)
+          break
+        }
       }
+    } else {
+      console.debug('No such tax class id: ' + product.tax_class_id)
     }
+  } else  {
+    console.debug('No  tax class set for: ' + product.sku)
   }
   if (!rateFound) {
     console.log('No such tax class id: ' + product.tax_class_id + ' or rate not found for ' + taxCountry + ' / ' + taxRegion)
